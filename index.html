@@ -113,6 +113,38 @@
     color:#1a1305;
     font-weight:500;
   }
+  .custom-range{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:100px;
+    padding:6px 8px 6px 16px;
+    margin-left:4px;
+  }
+  .custom-range input[type="date"]{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    background:transparent;
+    border:none;
+    color:var(--text);
+    color-scheme:dark;
+    cursor:pointer;
+  }
+  .custom-range span{color:var(--muted);font-size:12px;}
+  .custom-range button{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    background:var(--amber);
+    color:#1a1305;
+    border:none;
+    padding:6px 14px;
+    border-radius:100px;
+    cursor:pointer;
+    font-weight:500;
+  }
+  .custom-range button:hover{opacity:0.9;}
 
   /* ---------- hero ---------- */
   .hero{
@@ -171,6 +203,61 @@
     letter-spacing:.08em;
   }
   #heroChart{width:100%;height:190px;display:block;margin-top:12px;}
+  .chart-wrap{position:relative;}
+  .chart-tooltip{
+    position:absolute;
+    pointer-events:none;
+    background:#0d1728;
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:7px 10px;
+    white-space:nowrap;
+    transform:translate(-50%,-118%);
+    opacity:0;
+    transition:opacity .1s;
+    z-index:5;
+  }
+  .chart-tooltip.visible{opacity:1;}
+  .chart-tooltip .t-time{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    color:var(--muted);
+    margin-bottom:2px;
+  }
+  .chart-tooltip .t-price{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:600;
+    font-size:14px;
+    color:var(--text);
+  }
+  .axis-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10px;
+    fill:var(--muted);
+  }
+  .hero-toggle{
+    display:flex;
+    gap:4px;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:3px;
+  }
+  .hero-toggle button{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    background:transparent;
+    border:none;
+    color:var(--muted);
+    padding:6px 12px;
+    border-radius:6px;
+    cursor:pointer;
+  }
+  .hero-toggle button.active{
+    background:var(--amber);
+    color:#1a1305;
+    font-weight:500;
+  }
   .hero-footnote{
     font-family:'IBM Plex Mono', monospace;
     font-size:11px;
@@ -334,6 +421,12 @@
     <button class="period-btn active" data-days="30">30 jours</button>
     <button class="period-btn" data-days="90">90 jours</button>
     <button class="period-btn" data-days="ytd">Depuis janvier</button>
+    <div class="custom-range">
+      <input type="date" id="dateFrom">
+      <span>→</span>
+      <input type="date" id="dateTo">
+      <button id="applyRange">Appliquer</button>
+    </div>
   </div>
 
   <div class="error-box" id="errorBox"></div>
@@ -342,8 +435,13 @@
   <div class="hero">
     <div class="hero-top">
       <div>
-        <div class="hero-label">Prix day-ahead — aujourd'hui</div>
+        <div class="hero-label" id="heroLabel">Prix day-ahead — aujourd'hui</div>
         <div class="hero-value" id="heroCurrentPrice">—<span>€/MWh</span></div>
+      </div>
+      <div class="hero-toggle" id="heroToggle">
+        <button class="active" data-gran="day">Jour</button>
+        <button data-gran="week">Semaine</button>
+        <button data-gran="month">Mois</button>
       </div>
       <div class="hero-mini-stats">
         <div class="mini-stat"><div class="num" id="heroMin">—</div><div class="lbl">Minimum</div></div>
@@ -352,7 +450,10 @@
         <div class="mini-stat"><div class="num" id="heroNeg">—</div><div class="lbl">Heures &lt; 0</div></div>
       </div>
     </div>
-    <svg id="heroChart" preserveAspectRatio="none"></svg>
+    <div class="chart-wrap">
+      <svg id="heroChart" preserveAspectRatio="none"></svg>
+      <div class="chart-tooltip" id="heroTooltip"></div>
+    </div>
     <div class="hero-footnote" id="heroDateLabel">—</div>
   </div>
 
@@ -392,6 +493,18 @@
       <span><i class="swatch" style="background:var(--amber)"></i>Moyenne journalière</span>
       <span><i class="swatch" style="background:#2a3c5e"></i>Amplitude (min – max)</span>
       <span><i class="swatch" style="background:var(--red)"></i>Heures à prix négatif</span>
+    </div>
+  </div>
+
+  <!-- HISTOGRAM -->
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Distribution de l'écart journalier</h2>
+      <div class="sub">Répartition des écarts max – min quotidiens sur la période, calculée au quart d'heure</div>
+    </div>
+    <svg id="histChart" preserveAspectRatio="none" style="width:100%;height:180px;display:block;"></svg>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--amber)"></i>Nombre de jours par tranche d'écart (€/MWh)</span>
     </div>
   </div>
 
@@ -501,49 +614,91 @@
     return d.trim();
   }
 
-  function renderHeroChart(seconds, prices){
+  function renderHeroChart(points, granularity){
     const svg = document.getElementById('heroChart');
+    const tooltip = document.getElementById('heroTooltip');
     const w = 1000, h = 190;
+    const padLeft = 46, padRight = 8, padTop = 12, padBottom = 24;
+    const plotW = w - padLeft - padRight;
+    const plotH = h - padTop - padBottom;
+
     svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
     svg.innerHTML = '';
+    tooltip.classList.remove('visible');
 
-    if(prices.length < 2){
-      return;
-    }
+    if(points.length < 2) return;
 
-    const min = Math.min(...prices, 0);
-    const max = Math.max(...prices);
-    const zeroY = 8 + (1 - (0 - min)/((max-min)||1)) * (h - 16);
+    const values = points.map(p=>p.v);
+    const min = Math.min(...values, 0);
+    const max = Math.max(...values);
+    const range = (max - min) || 1;
+
+    function xPos(i){ return padLeft + (i/(points.length-1)) * plotW; }
+    function yPos(v){ return padTop + (1 - (v-min)/range) * plotH; }
 
     const ns = 'http://www.w3.org/2000/svg';
 
-    // zero line
-    if(min < 0){
-      const zeroLine = document.createElementNS(ns,'line');
-      zeroLine.setAttribute('x1',0); zeroLine.setAttribute('x2',w);
-      zeroLine.setAttribute('y1',zeroY); zeroLine.setAttribute('y2',zeroY);
-      zeroLine.setAttribute('stroke','#3a4a6b');
-      zeroLine.setAttribute('stroke-dasharray','4 4');
-      zeroLine.setAttribute('stroke-width','1');
-      svg.appendChild(zeroLine);
-    }
+    // ---- axe Y : min, zéro (si applicable), max ----
+    const yTicks = [max, min];
+    if(min < 0 && max > 0) yTicks.push(0);
+    yTicks.forEach(v=>{
+      const y = yPos(v);
+      const line = document.createElementNS(ns,'line');
+      line.setAttribute('x1', padLeft); line.setAttribute('x2', w - padRight);
+      line.setAttribute('y1', y); line.setAttribute('y2', y);
+      line.setAttribute('stroke', v === 0 ? '#3a4a6b' : '#1a2740');
+      line.setAttribute('stroke-dasharray', v === 0 ? '4 4' : '2 4');
+      line.setAttribute('stroke-width','1');
+      svg.appendChild(line);
 
-    const linePath = buildPath(prices, w, h, min, max, 8);
+      const label = document.createElementNS(ns,'text');
+      label.setAttribute('x', padLeft - 8);
+      label.setAttribute('y', y + 3);
+      label.setAttribute('text-anchor','end');
+      label.setAttribute('class','axis-label');
+      label.textContent = Math.round(v);
+      svg.appendChild(label);
+    });
 
-    // area fill under curve down to zero-ish baseline
-    const areaPath = linePath + ` L${w},${h-2} L0,${h-2} Z`;
-    const area = document.createElementNS(ns,'path');
-    area.setAttribute('d', areaPath);
-    area.setAttribute('fill', 'url(#heroGrad)');
-    area.setAttribute('opacity','0.5');
-    svg.appendChild(area);
+    // ---- axe X : heures (jour) ou dates (semaine / mois) ----
+    const targetLabels = granularity === 'day' ? 8 : Math.min(points.length, 10);
+    const step = Math.max(1, Math.round(points.length / targetLabels));
+    points.forEach((p,i)=>{
+      if(i % step !== 0 && i !== points.length - 1) return;
+      const x = xPos(i);
+      const label = document.createElementNS(ns,'text');
+      label.setAttribute('x', x);
+      label.setAttribute('y', h - 6);
+      label.setAttribute('text-anchor', i === points.length-1 ? 'end' : 'middle');
+      label.setAttribute('class','axis-label');
+      const d = new Date(p.t * 1000);
+      label.textContent = granularity === 'day'
+        ? d.toLocaleTimeString('fr-BE', {hour:'2-digit', minute:'2-digit'})
+        : d.toLocaleDateString('fr-BE', {day:'numeric', month:'short'});
+      svg.appendChild(label);
+    });
+
+    // ---- courbe ----
+    let linePath = '';
+    points.forEach((p,i)=>{
+      const x = xPos(i), y = yPos(p.v);
+      linePath += (i===0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
+    });
+    linePath = linePath.trim();
 
     const defs = document.createElementNS(ns,'defs');
     defs.innerHTML = `<linearGradient id="heroGrad" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#f2a93b" stop-opacity="0.35"/>
       <stop offset="100%" stop-color="#f2a93b" stop-opacity="0"/>
     </linearGradient>`;
-    svg.insertBefore(defs, svg.firstChild);
+    svg.appendChild(defs);
+
+    const areaPath = linePath + ` L${xPos(points.length-1).toFixed(2)},${(padTop+plotH).toFixed(2)} L${padLeft.toFixed(2)},${(padTop+plotH).toFixed(2)} Z`;
+    const area = document.createElementNS(ns,'path');
+    area.setAttribute('d', areaPath);
+    area.setAttribute('fill', 'url(#heroGrad)');
+    area.setAttribute('opacity','0.5');
+    svg.appendChild(area);
 
     const path = document.createElementNS(ns,'path');
     path.setAttribute('d', linePath);
@@ -554,25 +709,19 @@
     path.setAttribute('stroke-linecap','round');
     svg.appendChild(path);
 
-    // highlight negative segment in red
-    const negValues = prices.map(p => p < 0 ? p : null);
-    if(negValues.some(v => v !== null)){
-      let seg = [];
-      const segs = [];
-      prices.forEach((p,i)=>{
-        if(p < 0){ seg.push(i); }
-        else { if(seg.length>1) segs.push(seg); seg=[]; }
+    // ---- segments à prix négatif, en rouge ----
+    if(values.some(v => v < 0)){
+      let seg = [], segs = [];
+      values.forEach((v,i)=>{
+        if(v < 0){ seg.push(i); }
+        else { if(seg.length>1) segs.push(seg); seg = []; }
       });
       if(seg.length>1) segs.push(seg);
       segs.forEach(idxs=>{
-        const sub = idxs.map(i=>prices[i]);
-        const stepX = w/(prices.length-1);
-        const startX = idxs[0]*stepX;
-        let d='';
-        sub.forEach((v,k)=>{
-          const x = startX + k*stepX;
-          const y = 8 + (1 - (v-min)/((max-min)||1)) * (h-16);
-          d += (k===0?'M':'L')+x.toFixed(2)+','+y.toFixed(2)+' ';
+        let d = '';
+        idxs.forEach((i,k)=>{
+          const x = xPos(i), y = yPos(values[i]);
+          d += (k===0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
         });
         const negPath = document.createElementNS(ns,'path');
         negPath.setAttribute('d', d.trim());
@@ -582,6 +731,73 @@
         svg.appendChild(negPath);
       });
     }
+
+    // ---- interactivité : ligne de repère + point + infobulle au survol ----
+    const guideLine = document.createElementNS(ns,'line');
+    guideLine.setAttribute('y1', padTop);
+    guideLine.setAttribute('y2', padTop + plotH);
+    guideLine.setAttribute('stroke', '#5a6b8c');
+    guideLine.setAttribute('stroke-width','1');
+    guideLine.style.display = 'none';
+    svg.appendChild(guideLine);
+
+    const dot = document.createElementNS(ns,'circle');
+    dot.setAttribute('r', 4);
+    dot.setAttribute('fill', '#f2a93b');
+    dot.setAttribute('stroke', '#0B1220');
+    dot.setAttribute('stroke-width','2');
+    dot.style.display = 'none';
+    svg.appendChild(dot);
+
+    const overlay = document.createElementNS(ns,'rect');
+    overlay.setAttribute('x', padLeft);
+    overlay.setAttribute('y', padTop);
+    overlay.setAttribute('width', plotW);
+    overlay.setAttribute('height', plotH);
+    overlay.setAttribute('fill', 'transparent');
+    overlay.style.cursor = 'crosshair';
+    svg.appendChild(overlay);
+
+    function updateAt(clientX, clientY){
+      const rect = svg.getBoundingClientRect();
+      const scaleX = w / rect.width;
+      const mx = (clientX - rect.left) * scaleX;
+      let idx = Math.round((mx - padLeft) / plotW * (points.length - 1));
+      idx = Math.max(0, Math.min(points.length - 1, idx));
+      const p = points[idx];
+      const x = xPos(idx), y = yPos(p.v);
+
+      guideLine.setAttribute('x1', x); guideLine.setAttribute('x2', x);
+      guideLine.style.display = 'block';
+      dot.setAttribute('cx', x); dot.setAttribute('cy', y);
+      dot.style.display = 'block';
+
+      const d = new Date(p.t * 1000);
+      const timeStr = granularity === 'day'
+        ? d.toLocaleTimeString('fr-BE', {hour:'2-digit', minute:'2-digit'})
+        : d.toLocaleDateString('fr-BE', {weekday:'short', day:'numeric', month:'short'});
+
+      tooltip.innerHTML = `<div class="t-time">${timeStr}</div><div class="t-price">${fmtEUR(p.v)} €/MWh</div>`;
+      tooltip.classList.add('visible');
+
+      const px = (x / w) * rect.width;
+      const py = (y / h) * rect.height;
+      tooltip.style.left = px + 'px';
+      tooltip.style.top = py + 'px';
+    }
+
+    function onLeave(){
+      guideLine.style.display = 'none';
+      dot.style.display = 'none';
+      tooltip.classList.remove('visible');
+    }
+
+    svg.addEventListener('mousemove', (e)=> updateAt(e.clientX, e.clientY));
+    svg.addEventListener('mouseleave', onLeave);
+    svg.addEventListener('touchmove', (e)=>{
+      if(e.touches[0]){ updateAt(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); }
+    }, {passive:false});
+    svg.addEventListener('touchend', onLeave);
   }
 
   function renderTrendChart(days){
@@ -651,6 +867,73 @@
     });
   }
 
+  function renderHistogram(days){
+    const svg = document.getElementById('histChart');
+    const w = 1100, h = 180;
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    svg.innerHTML = '';
+    const ns = 'http://www.w3.org/2000/svg';
+
+    const spreads = days.map(d => d.max - d.min).filter(v => !isNaN(v));
+    if(spreads.length < 2) return;
+
+    const binCount = 12;
+    const min = Math.min(...spreads);
+    const max = Math.max(...spreads);
+    const range = (max - min) || 1;
+    const binWidth = range / binCount;
+    const bins = new Array(binCount).fill(0);
+    spreads.forEach(v=>{
+      let idx = Math.floor((v - min) / binWidth);
+      if(idx >= binCount) idx = binCount - 1;
+      if(idx < 0) idx = 0;
+      bins[idx]++;
+    });
+    const maxCount = Math.max(...bins);
+    const barGap = 4;
+    const barW = w / binCount - barGap;
+
+    bins.forEach((count, i)=>{
+      const barH = maxCount > 0 ? (count / maxCount) * (h - 34) : 0;
+      const x = i * (w / binCount) + barGap/2;
+      const y = h - 24 - barH;
+      const r = document.createElementNS(ns,'rect');
+      r.setAttribute('x', x);
+      r.setAttribute('y', y);
+      r.setAttribute('width', Math.max(1, barW));
+      r.setAttribute('height', barH);
+      r.setAttribute('fill', '#f2a93b');
+      r.setAttribute('opacity', '0.85');
+      r.setAttribute('rx', 2);
+      svg.appendChild(r);
+
+      if(count > 0){
+        const label = document.createElementNS(ns,'text');
+        label.setAttribute('x', x + barW/2);
+        label.setAttribute('y', y - 6);
+        label.setAttribute('text-anchor','middle');
+        label.setAttribute('fill', '#8a96ad');
+        label.setAttribute('font-size', '11');
+        label.setAttribute('font-family', 'IBM Plex Mono, monospace');
+        label.textContent = count;
+        svg.appendChild(label);
+      }
+
+      // étiquette de la borne basse de la tranche, une fois sur deux pour la lisibilité
+      if(i % 2 === 0){
+        const tick = document.createElementNS(ns,'text');
+        tick.setAttribute('x', x + barW/2);
+        tick.setAttribute('y', h - 6);
+        tick.setAttribute('text-anchor','middle');
+        tick.setAttribute('fill', '#8a96ad');
+        tick.setAttribute('font-size', '10');
+        tick.setAttribute('font-family', 'IBM Plex Mono, monospace');
+        tick.textContent = Math.round(min + i*binWidth);
+        svg.appendChild(tick);
+      }
+    });
+  }
+
   function groupByDay(seconds, values){
     const byDay = new Map();
     seconds.forEach((t,i)=>{
@@ -671,44 +954,73 @@
     return out;
   }
 
-  async function loadHero(){
+  async function loadHero(granularity){
+    granularity = granularity || 'day';
     try{
       const today = new Date();
-      const yesterday = new Date(today.getTime() - 86400000*2);
-      const start = fmtDate(yesterday);
-      const end = fmtDate(today);
-      const priceData = await fetchPrice(start, end);
+      let start, end;
+      if(granularity === 'day'){
+        start = new Date(today.getTime() - 86400000*2);
+        end = today;
+      } else if(granularity === 'week'){
+        end = new Date(today.getTime() - 86400000);
+        start = new Date(end.getTime() - 6*86400000);
+      } else { // month
+        end = new Date(today.getTime() - 86400000);
+        start = new Date(end.getTime() - 29*86400000);
+      }
+
+      const priceData = await fetchPrice(fmtDate(start), fmtDate(end));
       const seconds = priceData.unix_seconds;
       const prices = priceData.price;
 
-      // isolate the most recent full day available
-      const lastDay = new Date(seconds[seconds.length-1]*1000).toISOString().slice(0,10);
-      const idxs = [];
-      seconds.forEach((t,i)=>{
-        if(new Date(t*1000).toISOString().slice(0,10) === lastDay) idxs.push(i);
-      });
-      const dayPrices = idxs.map(i=>prices[i]);
+      let points, shown, dateLabel, labelPrefix;
 
-      renderHeroChart(seconds, dayPrices.length>4 ? dayPrices : prices);
+      if(granularity === 'day'){
+        // isolate the most recent full day available
+        const lastDay = new Date(seconds[seconds.length-1]*1000).toISOString().slice(0,10);
+        const idxs = [];
+        seconds.forEach((t,i)=>{
+          if(new Date(t*1000).toISOString().slice(0,10) === lastDay) idxs.push(i);
+        });
+        points = idxs.length > 4
+          ? idxs.map(i => ({t: seconds[i], v: prices[i]}))
+          : seconds.map((t,i) => ({t, v: prices[i]}));
+        shown = points.map(p=>p.v);
+        dateLabel = new Date(lastDay).toLocaleDateString('fr-BE', {weekday:'long', day:'numeric', month:'long', year:'numeric'}) +
+          ' · résolution 15 minutes';
+        labelPrefix = "Prix day-ahead — aujourd'hui";
+      } else {
+        const dayStats = groupByDay(seconds, prices);
+        points = dayStats.map(d => ({
+          t: Math.floor(new Date(d.date + 'T12:00:00Z').getTime() / 1000),
+          v: d.avg
+        }));
+        shown = prices.filter(v=>v!==null && !isNaN(v)); // extrêmes réels sur toute la période, au quart d'heure
+        const rangeLabel = start.toLocaleDateString('fr-BE',{day:'numeric',month:'short'}) +
+          ' – ' + end.toLocaleDateString('fr-BE',{day:'numeric',month:'short',year:'numeric'});
+        dateLabel = rangeLabel + ' · moyenne journalière, résolution quart d\'heure pour min/max';
+        labelPrefix = granularity === 'week' ? 'Prix day-ahead — 7 derniers jours' : 'Prix day-ahead — 30 derniers jours';
+      }
 
-      const shown = dayPrices.length>4 ? dayPrices : prices;
+      renderHeroChart(points, granularity);
+
       const min = Math.min(...shown);
       const max = Math.max(...shown);
       const avg = shown.reduce((a,b)=>a+b,0)/shown.length;
       const neg = shown.filter(v=>v<0).length/4;
-      const current = shown[shown.length-1];
+      const current = points[points.length-1].v;
 
+      document.getElementById('heroLabel').textContent = labelPrefix;
       document.getElementById('heroCurrentPrice').innerHTML = fmtEUR(current) + '<span>€/MWh</span>';
       document.getElementById('heroMin').textContent = fmtEUR(min);
       document.getElementById('heroMax').textContent = fmtEUR(max);
       document.getElementById('heroAvg').textContent = fmtEUR(avg);
       document.getElementById('heroNeg').textContent = neg.toFixed(1) + ' h';
-      document.getElementById('heroDateLabel').textContent =
-        new Date(lastDay).toLocaleDateString('fr-BE', {weekday:'long', day:'numeric', month:'long', year:'numeric'}) +
-        ' · résolution 15 minutes';
+      document.getElementById('heroDateLabel').textContent = dateLabel;
     }catch(e){
       console.error(e);
-      showError("Impossible de charger le prix du jour. L'API energy-charts.info est peut-être temporairement indisponible.");
+      showError("Impossible de charger le prix day-ahead. L'API energy-charts.info est peut-être temporairement indisponible.");
     }
   }
 
@@ -721,12 +1033,18 @@
 
     try{
       const today = new Date();
-      const end = new Date(today.getTime() - 86400000); // yesterday, avoid partial current day
-      let start;
-      if(days === 'ytd'){
-        start = new Date(Date.UTC(today.getUTCFullYear(),0,1));
+      let start, end;
+      if(days && typeof days === 'object'){
+        // plage précise choisie par l'utilisateur
+        start = days.start;
+        end = days.end;
       } else {
-        start = new Date(end.getTime() - (days-1)*86400000);
+        end = new Date(today.getTime() - 86400000); // yesterday, avoid partial current day
+        if(days === 'ytd'){
+          start = new Date(Date.UTC(today.getUTCFullYear(),0,1));
+        } else {
+          start = new Date(end.getTime() - (days-1)*86400000);
+        }
       }
       const startStr = fmtDate(start);
       const endStr = fmtDate(end);
@@ -781,6 +1099,7 @@
       }
 
       renderTrendChart(dayStats);
+      renderHistogram(dayStats);
 
       const rangeLabel = start.toLocaleDateString('fr-BE',{day:'numeric',month:'short',year:'numeric'}) +
         ' – ' + end.toLocaleDateString('fr-BE',{day:'numeric',month:'short',year:'numeric'});
@@ -815,6 +1134,45 @@
     btn.classList.add('active');
     const val = btn.dataset.days === 'ytd' ? 'ytd' : parseInt(btn.dataset.days,10);
     loadPeriod(val);
+  });
+
+  // ---------- plage de dates précise ----------
+  const dateFromEl = document.getElementById('dateFrom');
+  const dateToEl = document.getElementById('dateTo');
+  const todayForInputs = new Date();
+  const yesterdayForInputs = new Date(todayForInputs.getTime() - 86400000);
+  const monthAgoForInputs = new Date(yesterdayForInputs.getTime() - 29*86400000);
+  dateToEl.value = fmtDate(yesterdayForInputs);
+  dateFromEl.value = fmtDate(monthAgoForInputs);
+  dateFromEl.max = fmtDate(yesterdayForInputs);
+  dateToEl.max = fmtDate(yesterdayForInputs);
+
+  document.getElementById('applyRange').addEventListener('click', ()=>{
+    if(periodLoading) return;
+    if(!dateFromEl.value || !dateToEl.value){
+      showError('Sélectionne une date de début et une date de fin.');
+      return;
+    }
+    const start = new Date(dateFromEl.value + 'T00:00:00Z');
+    const end = new Date(dateToEl.value + 'T00:00:00Z');
+    if(start > end){
+      showError('La date de début doit précéder la date de fin.');
+      return;
+    }
+    document.querySelectorAll('.period-btn').forEach(b=>b.classList.remove('active'));
+    loadPeriod({start, end});
+  });
+
+  // ---------- hero granularity toggle ----------
+  let heroLoading = false;
+  document.getElementById('heroToggle').addEventListener('click', (e)=>{
+    if(heroLoading) return;
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    document.querySelectorAll('#heroToggle button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    heroLoading = true;
+    loadHero(btn.dataset.gran).finally(()=>{ heroLoading = false; });
   });
 
   loadHero();
