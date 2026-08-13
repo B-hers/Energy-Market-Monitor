@@ -713,6 +713,8 @@
   }
 
   async function loadPeriod(days){
+    periodLoading = true;
+    document.querySelectorAll('.period-btn').forEach(b=> b.style.opacity = '0.5');
     document.getElementById('trendLoading').style.display = 'block';
     document.getElementById('trendChart').style.display = 'none';
     errorBox.style.display = 'none';
@@ -797,11 +799,16 @@
       document.getElementById('trendLoading').style.display = 'block';
       document.getElementById('trendLoading').textContent = 'Données indisponibles pour le moment.';
       showError("Le chargement des données a échoué (API indisponible ou blocage réseau). Réessayez dans quelques instants.");
+    } finally {
+      periodLoading = false;
+      document.querySelectorAll('.period-btn').forEach(b=> b.style.opacity = '1');
     }
   }
 
   // ---------- controls ----------
+  let periodLoading = false;
   document.getElementById('periodControls').addEventListener('click', (e)=>{
+    if(periodLoading) return; // ignore les clics tant qu'un chargement est en cours
     const btn = e.target.closest('.period-btn');
     if(!btn) return;
     document.querySelectorAll('.period-btn').forEach(b=>b.classList.remove('active'));
