@@ -445,8 +445,13 @@
     return v.toLocaleString('fr-BE', {minimumFractionDigits:decimals, maximumFractionDigits:decimals});
   }
 
-  async function fetchJSON(url){
+  async function fetchJSON(url, attempt){
+    attempt = attempt || 1;
     const res = await fetch(url);
+    if(res.status === 429 && attempt < 3){
+      await new Promise(r => setTimeout(r, 1200 * attempt));
+      return fetchJSON(url, attempt + 1);
+    }
     if(!res.ok) throw new Error('Réponse API ' + res.status + ' pour ' + url);
     return res.json();
   }
