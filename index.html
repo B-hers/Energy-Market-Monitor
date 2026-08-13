@@ -423,7 +423,11 @@
 <script>
 (function(){
 
-  const API = 'https://api.energy-charts.info';
+  // L'API energy-charts.info ne renvoie pas d'en-tête CORS valide pour les sites tiers.
+  // Toutes les requêtes passent donc par un petit proxy Cloudflare Worker (voir cloudflare-worker-proxy.js)
+  // qui interroge l'API côté serveur et renvoie la réponse avec les bons en-têtes.
+  // Remplacer l'URL ci-dessous par celle de ton Worker une fois déployé.
+  const API = 'https://energy-market-proxy.hersben.workers.dev';
   const errorBox = document.getElementById('errorBox');
 
   function showError(msg){
