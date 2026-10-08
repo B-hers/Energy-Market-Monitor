@@ -592,8 +592,8 @@
   <header>
     <div>
       <p class="eyebrow">Energy Market Monitor</p>
-      <h1>Le marché day-ahead belge,<br>heure par heure.</h1>
-      <p>Prix spot, capture solaire et valeur de l'écrêtement, calculés en direct sur les prix day-ahead au pas quart-horaire.</p>
+      <h1>Le marché de l'électricité,<br>heure par heure.</h1>
+      <p>Le prix de l'électricité change toutes les 15 minutes en Belgique. Suivez-le en direct, et découvrez ce que ça change pour votre facture et vos panneaux solaires.</p>
     </div>
     <div class="status">
       <div><span class="live-dot"></span>Données en direct</div>
@@ -1769,16 +1769,19 @@
   async function loadHero(granularity){
     granularity = granularity || 'day';
     try{
-      const today = new Date();
+      // Ancré sur la fin de la période choisie dans les boutons/plage de dates ci-dessus
+      // (aujourd'hui par défaut), pour que le prix affiché corresponde à ce que l'utilisateur regarde.
+      const today = heroReferenceEnd;
+      const isCurrentToday = fmtDate(today) === fmtDate(new Date());
       let start, end;
       if(granularity === 'day'){
         start = new Date(today.getTime() - 86400000*2);
         end = today;
       } else if(granularity === 'week'){
-        end = new Date(today.getTime() - 86400000);
+        end = isCurrentToday ? new Date(today.getTime() - 86400000) : today;
         start = new Date(end.getTime() - 6*86400000);
       } else { // month
-        end = new Date(today.getTime() - 86400000);
+        end = isCurrentToday ? new Date(today.getTime() - 86400000) : today;
         start = new Date(end.getTime() - 29*86400000);
       }
 
@@ -1801,7 +1804,9 @@
         shown = points.map(p=>p.v);
         dateLabel = new Date(lastDay).toLocaleDateString('fr-BE', {weekday:'long', day:'numeric', month:'long', year:'numeric'}) +
           ' · résolution 15 minutes';
-        labelPrefix = "Prix day-ahead — aujourd'hui";
+        labelPrefix = isCurrentToday
+          ? "Prix day-ahead — aujourd'hui"
+          : 'Prix day-ahead — ' + new Date(lastDay).toLocaleDateString('fr-BE', {day:'numeric', month:'long', year:'numeric'});
       } else {
         const dayStats = groupByDay(seconds, prices);
         points = dayStats.map(d => ({
@@ -1812,7 +1817,9 @@
         const rangeLabel = start.toLocaleDateString('fr-BE',{day:'numeric',month:'short'}) +
           ' – ' + end.toLocaleDateString('fr-BE',{day:'numeric',month:'short',year:'numeric'});
         dateLabel = rangeLabel + ' · moyenne journalière, résolution quart d\'heure pour min/max';
-        labelPrefix = granularity === 'week' ? 'Prix day-ahead — 7 derniers jours' : 'Prix day-ahead — 30 derniers jours';
+        labelPrefix = isCurrentToday
+          ? (granularity === 'week' ? 'Prix day-ahead — 7 derniers jours' : 'Prix day-ahead — 30 derniers jours')
+          : (granularity === 'week' ? 'Prix day-ahead — 7 jours' : 'Prix day-ahead — 30 jours');
       }
 
       renderHeroChart(points, granularity);
@@ -1836,7 +1843,7 @@
     }
   }
 
-  async function loadPeriod(days){
+  async function loadPeriod(days, skipHeroSync){
     periodLoading = true;
     document.querySelectorAll('.period-btn').forEach(b=> b.style.opacity = '0.5');
     document.getElementById('trendLoading').style.display = 'block';
@@ -1917,6 +1924,14 @@
         ' – ' + end.toLocaleDateString('fr-BE',{day:'numeric',month:'short',year:'numeric'});
       document.getElementById('trendRangeLabel').textContent = rangeLabel;
 
+      // Le bloc "Prix day-ahead" en haut de page se recale sur la fin de cette période,
+      // pour que le chiffre affiché corresponde à la période choisie ci-dessus (sauf au
+      // tout premier chargement de la page, qui doit rester sur le prix du jour en direct).
+      if(!skipHeroSync){
+        heroReferenceEnd = end;
+        refreshHeroForPeriod();
+      }
+
       document.getElementById('lastUpdate').textContent =
         'Actualisé le ' + today.toLocaleDateString('fr-BE',{day:'numeric',month:'long',year:'numeric'}) +
         ' à ' + today.toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'});
@@ -1942,6 +1957,11 @@
   // cours se termine, pour que le dernier bouton cliqué soit toujours celui qui s'affiche.
   let periodLoading = false;
   let periodPending = undefined; // undefined = rien en attente ; peut valoir null si on voulait coder "pas de valeur"
+
+  // Date de référence du bloc "Prix day-ahead" en haut de page : la fin de la période actuellement
+  // sélectionnée (aujourd'hui par défaut). Mise à jour par loadPeriod() à chaque changement de
+  // période ou de plage de dates, pour que ce chiffre reflète ce que l'utilisateur regarde.
+  let heroReferenceEnd = new Date();
 
   function runPeriod(val){
     loadPeriod(val).finally(()=>{
@@ -2004,6 +2024,15 @@
         runHero(next);
       }
     });
+  }
+
+  // Rafraîchit le bloc "Prix day-ahead" avec la granularité actuellement affichée (Jour/Semaine/Mois),
+  // appelé après chaque changement de période en dessous pour garder les deux blocs synchronisés.
+  function refreshHeroForPeriod(){
+    const activeBtn = document.querySelector('#heroToggle button.active');
+    const gran = activeBtn ? activeBtn.dataset.gran : 'day';
+    if(heroLoading){ heroPending = gran; return; }
+    runHero(gran);
   }
 
   document.getElementById('heroToggle').addEventListener('click', (e)=>{
@@ -2259,7 +2288,7 @@
   });
 
   loadHero();
-  loadPeriod(30);
+  loadPeriod(30, true); // true = ne pas recaler le bloc "Prix day-ahead" sur hier au chargement initial
 
 })();
 </script>
