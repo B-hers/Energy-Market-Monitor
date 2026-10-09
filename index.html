@@ -1839,7 +1839,7 @@
       document.getElementById('heroDateLabel').textContent = dateLabel;
     }catch(e){
       console.error(e);
-      showError("Impossible de charger le prix day-ahead. L'API energy-charts.info est peut-être temporairement indisponible.");
+      showError("Impossible de charger le prix day-ahead. L'API energy-charts.info est peut-être temporairement indisponible. (" + e.message + ")");
     }
   }
 
@@ -1944,7 +1944,7 @@
       console.error(e);
       document.getElementById('trendLoading').style.display = 'block';
       document.getElementById('trendLoading').textContent = 'Données indisponibles pour le moment.';
-      showError("Le chargement des données a échoué (API indisponible ou blocage réseau). Réessayez dans quelques instants.");
+      showError("Le chargement des données a échoué (API indisponible ou blocage réseau). Réessayez dans quelques instants. (" + e.message + ")");
     } finally {
       periodLoading = false;
       document.querySelectorAll('.period-btn').forEach(b=> b.style.opacity = '1');
@@ -2157,7 +2157,7 @@
     }catch(e){
       console.error(e);
       document.getElementById('simLoading').style.display = 'none';
-      showError("Le calcul a échoué (API indisponible). Réessaie dans quelques instants.");
+      showError("Le calcul a échoué (API indisponible). Réessaie dans quelques instants. (" + e.message + ")");
     }
   });
 
